@@ -192,6 +192,62 @@
     if (commitForm(s)) PR.saveModelSettings();
   }
 
+  /* 文献库位置：选文件夹 → 空的就复制过去；已有论文就切换或合并。只复制不删，完成后要重启。 */
+  let libBusy = false;
+  function libraryHtml(s) {
+    const r = s.libMoved, desktop = window.easyreadDesktop;
+    const btn = (act, label, primary) => '<button class="btn sm ' + (primary ? "accent" : "line") + '" data-lib="' + act + '"' +
+      (libBusy || (r && act === "change") ? " disabled" : "") + ">" + PR.esc(label) + "</button>";
+    return '<div class="lib-loc" style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px">' +
+      '<span class="hint" style="flex:1;min-width:200px;word-break:break-all">' + PR.t("文献库位置：{path}", { path: PR.esc(s.cfg.library_dir) }) + "</span>" +
+      btn("reveal", PR.t("打开文件夹")) + btn("change", PR.t("更改…"), true) + "</div>" +
+      (libBusy ? '<p class="hint" role="status"><span class="spin"></span> ' + PR.t("正在处理文献库，请不要关闭 PaperRead…") + "</p>" : "") +
+      (r ? '<p class="hint" role="status"><b>' + PR.esc(r.message) + "</b>" +
+        (r.copied ? " " + PR.t("已复制 {copied} 篇，跳过 {skipped} 项", { copied: r.copied, skipped: (r.skipped || []).length }) : "") +
+        "<br>" + PR.esc(PR.t("新位置：{path}", { path: r.path })) + "<br>" + PR.esc(PR.t("原文献库保留在：{path}", { path: r.old_path })) + "</p>" +
+        (desktop && desktop.relaunch ? btn("restart", PR.t("现在重启"), true) : '<p class="hint">' + PR.t("请关掉 PaperRead 再重新打开") + "</p>") : "");
+  }
+
+  async function pickLibraryFolder() {
+    const desktop = window.easyreadDesktop;
+    if (desktop && desktop.pickFolder) return desktop.pickFolder();
+    // 浏览器版：后端弹系统的选文件夹窗口，弹不出来才让人填路径
+    const r = await PR.api("/api/library/pick-folder", { method: "POST", body: {} }).catch(() => ({ supported: false }));
+    return r.supported ? r.path : PR.promptText({ title: PR.t("文献库文件夹"), placeholder: PR.t("文件夹的完整路径"), max: 4096 });
+  }
+
+  async function changeLibrary(s, at) {
+    const path = await pickLibraryFolder();
+    if (!path) return;
+    let dest = await PR.api("/api/library/inspect", { method: "POST", body: { path } });
+    if (dest.incomplete) {
+      if (!(await PR.confirm({ title: PR.t("清理未完成的迁移？"), body: PR.t("只删除上次迁移复制到 {path} 的内容，那里原有的论文和你现在用的文献库都不动。", { path: dest.path }), ok: PR.t("清理"), at }))) return;
+      await PR.api("/api/library/cleanup", { method: "POST", body: { path: dest.path } });
+      dest = await PR.api("/api/library/inspect", { method: "POST", body: { path: dest.path } });
+    }
+    if (!dest.writable) throw new Error(PR.t("目标文件夹不可写"));
+    let mode = "copy";
+    if (dest.papers) {
+      const pick = await PR.confirm({
+        title: PR.t("那里已有 {n} 篇论文", { n: dest.papers }),
+        body: dest.path + "\n\n" + PR.t("切换：直接改用那里的论文，现在的论文不带过去。") + "\n" + PR.t("合并：把现在的论文也复制过去，重复的跳过。") + "\n" + PR.t("原来的文件夹保留，不会删除"),
+        ok: PR.t("合并"), alt: PR.t("切换"), at,
+      });
+      if (!pick) return;
+      mode = pick === "alt" ? "use" : "merge";
+    } else if (!(await PR.confirm({
+      title: PR.t("迁移文献库"),
+      body: PR.t("从") + " " + s.cfg.library_dir + "\n" + PR.t("到") + " " + dest.path + "\n\n" + PR.t("复制完逐个核对，以后都存在新位置") + "\n" +
+        PR.t("原来的文件夹保留，不会删除") + "\n" + PR.t("开始前请关闭其他阅读窗口，完成后需要重启"),
+      ok: PR.t("开始迁移"), at,
+    }))) return;
+    libBusy = true; PR.settingsRender();
+    const r = await PR.api("/api/library/move", { method: "POST", body: { path: dest.path, mode } });
+    if (r.ok === false) throw new Error(r.message);
+    s.libMoved = r;
+    if (PR.libraryLocationNotice) PR.libraryLocationNotice({ library_status: "restart_required" });
+  }
+
   T.chat = {
     render(s) {
       if (!s.chat) return '<p class="hint">' + PR.t("读不到模型名单。") + "</p>";
@@ -199,7 +255,7 @@
       ensureTranslationCard(s);
       return cardsHtml(s) + (s.editing ? formHtml(s) : "") +
         '<div class="settings-sec">' + translationHtml(s) + "</div>" +
-        '<p class="hint" style="margin-top:14px">' + PR.t("文献库位置：{path}", { path: PR.esc(s.cfg.library_dir) }) + "</p>";
+        libraryHtml(s);
     },
     sync(s) { readForm(s); readTranslation(s); },
     change(e, s) {
@@ -220,6 +276,17 @@
       return false;
     },
     async click(e, s) {
+      const lib = e.target.closest("[data-lib]");
+      if (lib) {
+        if (libBusy || lib.disabled) return false;
+        try {
+          if (lib.dataset.lib === "reveal") await PR.api("/api/library/reveal", { method: "POST", body: {} });
+          else if (lib.dataset.lib === "restart") await window.easyreadDesktop.relaunch();
+          else await changeLibrary(s, lib);
+        } catch (err) { PR.toast(err.message); }
+        finally { libBusy = false; }
+        return true;
+      }
       if (e.target.closest("#testBtn")) {
         readTranslation(s);
         const res = PR.$("#testRes");
