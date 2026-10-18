@@ -35,7 +35,8 @@ class LibraryLocation:
     @contextmanager
     def request(self, method: str, raw_path: str):
         path = unquote(urlparse(raw_path).path)
-        protected = method == "POST" and path not in ("/api/shutdown", "/api/presence/keep")
+        protected = (method == "POST" and path not in (
+            "/api/library/move", "/api/library/inspect", "/api/library/pick-folder", "/api/library/reveal", "/api/shutdown", "/api/presence/keep"))
         if method in ("GET", "HEAD"):
             protected = path.startswith(("/read/", "/p/")) or (path.startswith("/api/p/") and not path.endswith("/versions"))
         entered = False
@@ -154,4 +155,4 @@ def post(app, path: str, body: dict):
     return None
 
 
-POST = {"/api/shutdown"}
+POST = {"/api/library/inspect", "/api/library/pick-folder", "/api/library/cleanup", "/api/library/move", "/api/library/reveal", "/api/shutdown"}

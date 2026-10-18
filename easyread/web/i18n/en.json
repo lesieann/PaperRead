@@ -1794,5 +1794,11 @@
  "此論文目前已封存，不會出現在閱讀看板中。": "This paper is archived and will not appear on the reading board.",
  "移出封存": "Unarchive",
  "移出封存（恢復）": "Unarchive (Restore)",
- "PAPERREAD_PUBLIC_HOST 必須包含有效的主機名稱": "PAPERREAD_PUBLIC_HOST must contain a valid host name"
+ "PAPERREAD_PUBLIC_HOST 必須包含有效的主機名稱": "PAPERREAD_PUBLIC_HOST must contain a valid host name",
+ "切换：直接改用那里的论文，现在的论文不带过去。": "Switch: use the papers there; your current papers are not brought along.",
+ "合并：把现在的论文也复制过去，重复的跳过。": "Merge: copy your current papers there too, skipping duplicates.",
+ "文件夹的完整路径": "Full path of the folder",
+ "新位置：{path}": "New location: {path}",
+ "更改…": "Change…",
+ "那里已有 {n} 篇论文": "That folder already has {n} papers"
 }
